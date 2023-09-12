@@ -17,7 +17,8 @@ values['A'] = 11
 class Deck:
 
     def __init__(self):
-        self.cards = [Card(s, r) for s in suits for r in ranks]
+       self.cards = [Card(s, r.split(' ')[0]) for s in suits 
+                     for r in ranks]
         
     def shuffle(self):
         random.shuffle(self.cards)
@@ -33,10 +34,9 @@ class Hand:
         self.value = 0
         
     def add_card(self, card):
-        rank = card.rank # Added this
         self.cards.append(card)
-        self.value += values[rank]
-        if rank == 'A' and self.value > 21:
+        self.value += values[card.rank]
+        if card.rank == 'A' and self.value > 21:
             self.value -= 10
 
 
