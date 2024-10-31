@@ -373,56 +373,91 @@ class Blackjack:
         self.round_state = RoundState.NOT_STARTED
         
     @validate_game_state
-    def surrender(self, hand: Hand) -> Tuple[bool, float]:
-        if not hand.can_surrender(self.rules):
-            return False, 0
+    def start_round(self, bet_amount: float) -> bool:
+        """Start a round by placing bet and dealing initial cards"""
+        # Validate bet and round state
+        if self.round_state != RoundState.NOT_STARTED:
+            raise GameError("Previous round not complete")
             
-        hand.is_surrendered = True
-        surrender_amount = hand.bet * 0.5
-        self.player.bankroll += surrender_amount
-        self.player.update_stats(GameResult.SURRENDER, surrender_amount, hand)
-        return True, surrender_amount
+        if bet_amount < self.rules.min_bet or bet_amount > self.rules.max_bet:
+            raise GameError(f"Bet must be between ${self.rules.min_bet:.2f} and ${self.rules.max_bet:.2f}")
         
-    @validate_game_state
-    def place_insurance(self, hand: Hand) -> bool:
-        if not self.rules.insurance_offered or self.get_dealer_upcard().rank != 'A':
+        if bet_amount != round(bet_amount, 2):
+            raise GameError("Bet must be in valid currency units (dollars and cents)")
+            
+        # Place bet and deal cards
+        if not self.player.place_bet(bet_amount):
+            raise GameError("Insufficient funds for bet")
+            
+        if not self.deal_initial_cards():
             return False
             
-        insurance_amount = hand.original_bet * 0.5
-        if self.player.bankroll < insurance_amount:
-            return False
-            
-        self.player.bankroll -= insurance_amount
-        hand.insurance_bet = insurance_amount
-        self.player.stats.insurances_taken += 1
-        self.player.stats.wagers.insurance_wagers += insurance_amount
+        self.round_state = RoundState.PLAYER_TURN
         return True
+
+    def deal_initial_cards(self) -> bool:
+        """Deal initial cards, return False if insufficient cards"""
+        self.player.reset_hands()
+        self.dealer_hand = Hand()
         
-    def handle_insurance_payout(self, hand: Hand) -> Optional[float]:
-        """Handle insurance bet and return any payout"""
-        if not hand.insurance_bet:
-            return None
+        # Deal cards alternately
+        for _ in range(2):
+            player_card = self.deck.draw()
+            dealer_card = self.deck.draw()
+            if not player_card or not dealer_card:
+                return False
+                
+            self.player.hands[0].add_card(player_card)
+            self.dealer_hand.add_card(dealer_card)
             
-        if self.dealer_hand.is_blackjack():
-            payout = hand.insurance_bet * (1 + self.rules.insurance_payout)  # Return bet plus 2:1 winnings
-            self.player.bankroll += payout
-            self.player.stats.insurances_won += 1
-            return payout
-        return 0
-        
+        self.round_state = RoundState.INITIAL_DEAL
+        return True
+
+    def get_dealer_upcard(self) -> Card:
+        return self.dealer_hand.cards[0]
+
     @validate_game_state
-    def take_even_money(self, hand: Hand) -> Tuple[bool, float]:
-        """Handle even money option for blackjack against dealer ace"""
-        if not hand.can_take_even_money(self.rules, self.get_dealer_upcard()):
-            return False, 0
+    def hit(self, hand: Hand) -> bool:
+        if hand.is_done():
+            return False
             
-        # Even money pays 1:1 immediately
-        hand.took_even_money = True
-        payout = hand.bet * 2  # Original bet plus 1:1
-        self.player.bankroll += payout
-        self.player.update_stats(GameResult.WIN, payout, hand)
-        return True, payout
+        card = self.deck.draw()
+        if not card:
+            return False
+            
+        success = hand.add_card(card)
+        if success:
+            self.player.round_events.append(GameEvent(
+                timestamp=datetime.now(),
+                action="hit",
+                hand_index=self.player.hands.index(hand),
+                player_cards=str(hand),
+                dealer_card=str(self.get_dealer_upcard())
+            ))
+        return success
+
+    @validate_game_state
+    def double_down(self, hand: Hand) -> bool:
+        if not hand.can_double(self.rules) or self.player.bankroll < hand.bet:
+            return False
+            
+        self.player.bankroll -= hand.bet
+        hand.bet *= 2
+        hand.is_doubled = True
+        self.player.stats.doubles += 1
+        self.player.stats.wagers.additional_wagers += hand.original_bet
         
+        success = self.hit(hand)
+        if success:
+            self.player.round_events.append(GameEvent(
+                timestamp=datetime.now(),
+                action="double",
+                hand_index=self.player.hands.index(hand),
+                amount=hand.bet,
+                player_cards=str(hand)
+            ))
+        return success
+
     @validate_game_state
     def split(self, hand_index: int) -> bool:
         if len(self.player.hands) >= self.rules.max_splits + 1:
@@ -467,67 +502,55 @@ class Blackjack:
         return True
 
     @validate_game_state
-    def hit(self, hand: Hand) -> bool:
-        if hand.is_done():
-            return False
+    def surrender(self, hand: Hand) -> Tuple[bool, float]:
+        if not hand.can_surrender(self.rules):
+            return False, 0
             
-        card = self.deck.draw()
-        if not card:
-            return False
-            
-        success = hand.add_card(card)
-        if success:
-            self.player.round_events.append(GameEvent(
-                timestamp=datetime.now(),
-                action="hit",
-                hand_index=self.player.hands.index(hand),
-                player_cards=str(hand),
-                dealer_card=str(self.get_dealer_upcard())
-            ))
-        return success
+        hand.is_surrendered = True
+        surrender_amount = hand.bet * 0.5
+        self.player.bankroll += surrender_amount
+        self.player.update_stats(GameResult.SURRENDER, surrender_amount, hand)
+        return True, surrender_amount
 
     @validate_game_state
-    def double_down(self, hand: Hand) -> bool:
-        if not hand.can_double(self.rules) or self.player.bankroll < hand.bet:
+    def place_insurance(self, hand: Hand) -> bool:
+        if not self.rules.insurance_offered or self.get_dealer_upcard().rank != 'A':
             return False
             
-        self.player.bankroll -= hand.bet
-        hand.bet *= 2
-        hand.is_doubled = True
-        self.player.stats.doubles += 1
-        self.player.stats.wagers.additional_wagers += hand.original_bet
-        
-        success = self.hit(hand)
-        if success:
-            self.player.round_events.append(GameEvent(
-                timestamp=datetime.now(),
-                action="double",
-                hand_index=self.player.hands.index(hand),
-                amount=hand.bet,
-                player_cards=str(hand)
-            ))
-        return success
-
-    def get_dealer_upcard(self) -> Card:
-        return self.dealer_hand.cards[0]
-
-    def deal_initial_cards(self) -> bool:
-        """Deal initial cards, return False if insufficient cards"""
-        self.player.reset_hands()
-        self.dealer_hand = Hand()
-        
-        # Deal cards alternately
-        for _ in range(2):
-            player_card = self.deck.draw()
-            dealer_card = self.deck.draw()
-            if not player_card or not dealer_card:
-                return False
-                
-            self.player.hands[0].add_card(player_card)
-            self.dealer_hand.add_card(dealer_card)
+        insurance_amount = hand.original_bet * 0.5
+        if self.player.bankroll < insurance_amount:
+            return False
             
-        self.round_state = RoundState.INITIAL_DEAL
+        self.player.bankroll -= insurance_amount
+        hand.insurance_bet = insurance_amount
+        self.player.stats.insurances_taken += 1
+        self.player.stats.wagers.insurance_wagers += insurance_amount
         return True
+        
+    def handle_insurance_payout(self, hand: Hand) -> Optional[float]:
+        """Handle insurance bet and return any payout"""
+        if not hand.insurance_bet:
+            return None
+            
+        if self.dealer_hand.is_blackjack():
+            payout = hand.insurance_bet * (1 + self.rules.insurance_payout)  # Return bet plus 2:1 winnings
+            self.player.bankroll += payout
+            self.player.stats.insurances_won += 1
+            return payout
+        return 0
+        
+    @validate_game_state
+    def take_even_money(self, hand: Hand) -> Tuple[bool, float]:
+        """Handle even money option for blackjack against dealer ace"""
+        if not hand.can_take_even_money(self.rules, self.get_dealer_upcard()):
+            return False, 0
+            
+        # Even money pays 1:1 immediately
+        hand.took_even_money = True
+        payout = hand.bet * 2  # Original bet plus 1:1
+        self.player.bankroll += payout
+        self.player.update_stats(GameResult.WIN, payout, hand)
+        return True, payout
 
     def play_dealer_hand(self) -> bool:
         """Play out dealer hand. Return False if insufficient cards."""
@@ -607,72 +630,6 @@ class Blackjack:
             player_hands=[str(hand) for hand in self.player.hands],
             round_events=self.player.round_events
         )
-
-    def get_valid_moves(self, hand: Hand) -> List[str]:
-        """Get list of valid moves for the given hand"""
-        if self.round_state != RoundState.PLAYER_TURN or hand.is_done():
-            return []
-            
-        moves = ['hit', 'stand']
-        
-        # Handle blackjack options first
-        if hand.is_blackjack():
-            if (self.rules.even_money_offered and 
-                self.get_dealer_upcard().rank == 'A' and
-                not hand.took_even_money):
-                return ['even_money', 'keep_blackjack']
-            return []
-            
-        if hand.can_surrender(self.rules):
-            moves.append('surrender')
-            
-        if hand.can_double(self.rules) and self.player.bankroll >= hand.bet:
-            moves.append('double')
-            
-        if (hand.can_split(self.rules) and 
-            self.player.bankroll >= hand.bet and 
-            len(self.player.hands) < self.rules.max_splits + 1):
-            moves.append('split')
-            
-        return moves
-
-    def get_game_state(self) -> Dict:
-        """Get current game state including statistics"""
-        metrics = self.player.get_performance_metrics()
-        
-        return {
-            'player_name': self.player.name,
-            'bankroll': self.player.bankroll,
-            'statistics': asdict(self.player.stats),
-            'performance_metrics': metrics,
-            'current_hand_number': self.player.stats.hands_played + 1,
-            'cards_remaining': self.deck.cards_remaining(),
-            'rules': asdict(self.rules),
-            'round_state': self.round_state.name
-        }
-
-    @validate_game_state
-    def start_round(self, bet_amount: float) -> bool:
-        """Start a round by placing bet and dealing initial cards"""
-        # Validate bet and round state
-        if self.round_state != RoundState.NOT_STARTED:
-            raise GameError("Previous round not complete")
-            
-        if bet_amount < self.rules.min_bet or bet_amount > self.rules.max_bet:
-            raise GameError(f"Bet must be between ${self.rules.min_bet:.2f} and ${self.rules.max_bet:.2f}")
-        
-        if bet_amount != round(bet_amount, 2):
-            raise GameError("Bet must be in valid currency units (dollars and cents)")
-            
-        # Place bet and deal cards
-        if not self.player.place_bet(bet_amount):
-            raise GameError("Insufficient funds for bet")
-            
-        if not self.deal_initial_cards():
-            return False
-            
-        self.round_state = RoundState.PLAYER_TURN
-        return True
 
     @validate_game_state
     def finish_round(self) -> RoundResult:
@@ -770,6 +727,49 @@ class Blackjack:
             self.check_hand_done(hand)
             
         return success
+
+    def get_valid_moves(self, hand: Hand) -> List[str]:
+        """Get list of valid moves for the given hand"""
+        if self.round_state != RoundState.PLAYER_TURN or hand.is_done():
+            return []
+            
+        moves = ['hit', 'stand']
+        
+        # Handle blackjack options first
+        if hand.is_blackjack():
+            if (self.rules.even_money_offered and 
+                self.get_dealer_upcard().rank == 'A' and
+                not hand.took_even_money):
+                return ['even_money', 'keep_blackjack']
+            return []
+            
+        if hand.can_surrender(self.rules):
+            moves.append('surrender')
+            
+        if hand.can_double(self.rules) and self.player.bankroll >= hand.bet:
+            moves.append('double')
+            
+        if (hand.can_split(self.rules) and 
+            self.player.bankroll >= hand.bet and 
+            len(self.player.hands) < self.rules.max_splits + 1):
+            moves.append('split')
+            
+        return moves
+
+    def get_game_state(self) -> Dict:
+        """Get current game state including statistics"""
+        metrics = self.player.get_performance_metrics()
+        
+        return {
+            'player_name': self.player.name,
+            'bankroll': self.player.bankroll,
+            'statistics': asdict(self.player.stats),
+            'performance_metrics': metrics,
+            'current_hand_number': self.player.stats.hands_played + 1,
+            'cards_remaining': self.deck.cards_remaining(),
+            'rules': asdict(self.rules),
+            'round_state': self.round_state.name
+        }
 
 def format_currency(amount: float) -> str:
     return f"${amount:.2f}"
