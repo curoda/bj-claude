@@ -651,7 +651,7 @@ class Blackjack:
             'round_state': self.round_state.name
         }
 
-   @validate_game_state
+    @validate_game_state
     def start_round(self, bet_amount: float) -> bool:
         """Start a round by placing bet and dealing initial cards"""
         # Validate bet and round state
