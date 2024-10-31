@@ -265,7 +265,7 @@ class Hand:
     def __str__(self):
         return f"{' '.join(str(card) for card in self.cards)} - {self.get_status()}"
 
-    class Player:
+class Player:
     def __init__(self, name: str, bankroll: float = 1000.0):
         self.name = name
         self.bankroll = bankroll
@@ -635,15 +635,6 @@ class Blackjack:
             moves.append('split')
             
         return moves
-
-    def get_game_state(self) -> Dict:
-        """Get current game state including statistics"""
-        metrics = self.player.get_performance_metrics()
-        
-        return {
-            'player_name': self.player.name,
-            'bankroll': self.player.bankroll,
-            'statistics': as
 
     def get_game_state(self) -> Dict:
         """Get current game state including statistics"""
