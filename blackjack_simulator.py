@@ -1,10 +1,12 @@
+from blackjack import Blackjack, BlackjackRules, Card, Hand, GameResult
+from basic_strategy import BasicStrategy, Action  # Action should come from basic_strategy
 from typing import List, Tuple, Dict
-import random
-from tqdm import tqdm
-import statistics
 from dataclasses import dataclass
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing
+import random
+from tqdm import tqdm
+import statistics
 
 @dataclass
 class SimulationResult:
@@ -39,8 +41,8 @@ class BlackjackSimulator:
         # Convert cards to strategy format
         player_cards = []
         for card in hand.cards:
-            if card.rank in ['J', 'Q', 'K']:
-                player_cards.append('T')
+            if card.rank in ['10', 'J', 'Q', 'K']:
+                player_cards.append('T')  # All 10-value cards become 'T'
             else:
                 player_cards.append(card.rank)
                 
