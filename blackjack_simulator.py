@@ -1,5 +1,5 @@
 from blackjack import Blackjack, BlackjackRules, Card, Hand, GameResult
-from basic_strategy import BasicStrategy, Action  # Action should come from basic_strategy
+from basic_strategy import BasicStrategy, Action
 from typing import List, Tuple, Dict
 from dataclasses import dataclass
 from concurrent.futures import ProcessPoolExecutor
@@ -7,6 +7,10 @@ import multiprocessing
 import random
 from tqdm import tqdm
 import statistics
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 @dataclass
 class SimulationResult:
@@ -35,7 +39,7 @@ class BlackjackSimulator:
     def reset_game(self):
         """Reset the game state for a new simulation"""
         self.game = Blackjack(self.game.player.name, self.initial_bankroll, self.game.rules)
-
+        
     def get_strategy_move(self, hand: Hand, dealer_upcard: Card) -> str:
         """Get the basic strategy move for the current hand"""
         # Convert cards to strategy format
@@ -83,54 +87,55 @@ class BlackjackSimulator:
             'push': 0,
             'surrender': 0,
             'double': 0,
-            'split': 0,
-            'insurance': 0
+            'split': 0
         }
 
+        # Place initial bet and start round
         result = self.game.play_round(self.base_bet)
         
+        # If we couldn't place bet or deal cards, return early
+        if not result:
+            return 0, metrics
+
         # Get initial state
         dealer_upcard = self.game.get_dealer_upcard()
         
-        # Handle insurance if offered
-        if (self.game.rules.insurance_offered and 
-            dealer_upcard.rank == 'A' and
-            self.strategy.should_take_insurance()):  # This would be a new method to add
-            self.game.place_insurance(self.game.player.hands[0])
-
+        # Basic strategy never takes insurance or even money
+        
         # Play each hand according to basic strategy
         for hand_index, hand in enumerate(self.game.player.hands):
             while not hand.is_done():
                 move = self.get_strategy_move(hand, dealer_upcard)
                 
                 if move == 'split':
-                    self.game.split(hand_index)
-                    metrics['split'] += 1
+                    if self.game.split(hand_index):
+                        metrics['split'] += 1
                 elif move == 'double':
-                    self.game.double_down(hand)
-                    metrics['double'] += 1
+                    if self.game.double_down(hand):
+                        metrics['double'] += 1
                     break
                 elif move == 'surrender':
-                    self.game.surrender(hand)
-                    metrics['surrender'] += 1
+                    if self.game.surrender(hand):
+                        metrics['surrender'] += 1
                     break
                 elif move == 'hit':
-                    self.game.hit(hand)
+                    if not self.game.hit(hand):
+                        break
                 elif move == 'stand':
                     break
 
         # Process results
-        for result, amount in result.hand_results:
-            if result == GameResult.BLACKJACK:
+        for game_result, amount in result.hand_results:
+            if game_result == GameResult.BLACKJACK:
                 metrics['blackjack'] += 1
                 metrics['win'] += 1
-            elif result == GameResult.WIN:
+            elif game_result == GameResult.WIN:
                 metrics['win'] += 1
-            elif result == GameResult.LOSE:
+            elif game_result == GameResult.LOSE:
                 metrics['loss'] += 1
-            elif result == GameResult.PUSH:
+            elif game_result == GameResult.PUSH:
                 metrics['push'] += 1
-            elif result == GameResult.SURRENDER:
+            elif game_result == GameResult.SURRENDER:
                 metrics['surrender'] += 1
 
         return result.total_win_loss, metrics
@@ -141,6 +146,8 @@ class BlackjackSimulator:
             processes = multiprocessing.cpu_count()
 
         hands_per_process = num_hands // processes
+        
+        logger.info(f"Starting simulation of {num_hands:,} hands using {processes} processes")
         
         with ProcessPoolExecutor(max_workers=processes) as executor:
             futures = [
@@ -153,10 +160,11 @@ class BlackjackSimulator:
         # Combine results
         combined = self._combine_simulation_results(results)
         
-        # Calculate house edge and other metrics
+        # Calculate house edge
         combined.house_edge = ((combined.total_lost - combined.total_won) / 
                              combined.total_wagered * 100)
         
+        logger.info("Simulation complete")
         return combined
 
     def _simulate_batch(self, num_hands: int) -> SimulationResult:
