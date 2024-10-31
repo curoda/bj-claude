@@ -651,9 +651,9 @@ class Blackjack:
             'round_state': self.round_state.name
         }
 
-    @validate_game_state
-    def play_round(self, bet_amount: float) -> RoundResult:
-        """Play a complete round, returning the results"""
+   @validate_game_state
+    def start_round(self, bet_amount: float) -> bool:
+        """Start a round by placing bet and dealing initial cards"""
         # Validate bet and round state
         if self.round_state != RoundState.NOT_STARTED:
             raise GameError("Previous round not complete")
@@ -669,66 +669,107 @@ class Blackjack:
             raise GameError("Insufficient funds for bet")
             
         if not self.deal_initial_cards():
-            return self.handle_dead_hand()
-        
-        # Initialize round result tracking
+            return False
+            
+        self.round_state = RoundState.PLAYER_TURN
+        return True
+
+    @validate_game_state
+    def finish_round(self) -> RoundResult:
+        """Complete the round by playing dealer hand and resolving all hands"""
         results = []
         total_win_loss = 0
-        insurance_result = None
         
-        self.round_state = RoundState.PLAYER_TURN
-        
-        # Handle insurance first if applicable
-        if (self.rules.insurance_offered and 
-            self.get_dealer_upcard().rank == 'A' and 
-            any(h.insurance_bet > 0 for h in self.player.hands)):
-            
-            for hand in self.player.hands:
-                if hand.insurance_bet > 0:
-                    payout = self.handle_insurance_payout(hand)
-                    if payout is not None:
-                        insurance_result = payout
-        
-        # Handle dealer blackjack
-        if self.dealer_hand.is_blackjack():
-            for hand in self.player.hands:
-                # Skip hands that took even money
-                if hand.took_even_money:
-                    continue
-                    
-                result, amount = self.resolve_hand(hand)
-                results.append((result, amount))
-                total_win_loss += amount - hand.original_bet
-                self.player.bankroll += amount
-                self.player.update_stats(result, amount, hand)
-        else:
-            # Play out dealer hand if necessary
+        # Play out dealer hand if necessary (skip if all player hands are busted/surrendered)
+        all_hands_resolved = all(hand.is_done() for hand in self.player.hands)
+        if not all_hands_resolved:
             dealer_cards_ok = self.play_dealer_hand()
             if not dealer_cards_ok:
                 return self.handle_dead_hand()
                 
-            # Resolve all player hands
-            for hand in self.player.hands:
-                # Skip hands that took even money
-                if hand.took_even_money:
-                    continue
-                    
-                result, amount = self.resolve_hand(hand)
-                results.append((result, amount))
-                total_win_loss += amount - hand.original_bet
-                self.player.bankroll += amount
-                self.player.update_stats(result, amount, hand)
+        # Resolve all player hands
+        for hand in self.player.hands:
+            # Skip hands that took even money
+            if hand.took_even_money:
+                continue
+                
+            result, amount = self.resolve_hand(hand)
+            results.append((result, amount))
+            total_win_loss += amount - hand.original_bet
+            self.player.bankroll += amount
+            self.player.update_stats(result, amount, hand)
         
         self.round_state = RoundState.COMPLETE
         
         return RoundResult(
             hand_results=results,
             total_win_loss=total_win_loss,
-            insurance_result=insurance_result,
+            insurance_result=None,
             dealer_hand=str(self.dealer_hand),
             player_hands=[str(hand) for hand in self.player.hands],
             round_events=self.player.round_events
         )
+
+    @validate_game_state
+    def play_round(self, bet_amount: float) -> RoundResult:
+        """Play a complete round (for non-simulation play)"""
+        if not self.start_round(bet_amount):
+            return self.handle_dead_hand()
+            
+        # Handle insurance first if applicable
+        dealer_upcard = self.get_dealer_upcard()
+        if (self.rules.insurance_offered and 
+            dealer_upcard.rank == 'A' and 
+            any(h.insurance_bet > 0 for h in self.player.hands)):
+            
+            for hand in self.player.hands:
+                if hand.insurance_bet > 0:
+                    self.handle_insurance_payout(hand)
+        
+        # Handle dealer blackjack
+        if self.dealer_hand.is_blackjack():
+            return self.finish_round()
+            
+        # At this point, player would normally make decisions
+        # For automated play, we'll just resolve the hand
+        return self.finish_round()
+
+    def check_hand_done(self, hand: Hand) -> bool:
+        """Check if a hand is finished and update game state if needed"""
+        if hand.is_done():
+            # Check if all hands are done
+            if all(h.is_done() for h in self.player.hands):
+                self.round_state = RoundState.DEALER_TURN
+            return True
+        return False
+
+    def execute_move(self, move: str, hand_index: int) -> bool:
+        """Execute a move for the given hand index"""
+        if self.round_state != RoundState.PLAYER_TURN:
+            return False
+            
+        hand = self.player.hands[hand_index]
+        if hand.is_done():
+            return False
+            
+        success = False
+        if move == 'hit':
+            success = self.hit(hand)
+        elif move == 'stand':
+            success = True  # Stand always succeeds
+        elif move == 'double':
+            success = self.double_down(hand)
+        elif move == 'split':
+            success = self.split(hand_index)
+        elif move == 'surrender':
+            success = bool(self.surrender(hand)[0])
+        elif move == 'even_money':
+            success = bool(self.take_even_money(hand)[0])
+            
+        if success:
+            self.check_hand_done(hand)
+            
+        return success
 
 def format_currency(amount: float) -> str:
     return f"${amount:.2f}"
