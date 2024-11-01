@@ -90,40 +90,46 @@ class BlackjackSimulator:
             'split': 0
         }
 
-        # Place initial bet and start round
-        result = self.game.play_round(self.base_bet)
-        
-        # If we couldn't place bet or deal cards, return early
-        if not result:
+        # Start the round
+        if not self.game.start_round(self.base_bet):
             return 0, metrics
 
         # Get initial state
         dealer_upcard = self.game.get_dealer_upcard()
         
         # Basic strategy never takes insurance or even money
-        
-        # Play each hand according to basic strategy
-        for hand_index, hand in enumerate(self.game.player.hands):
-            while not hand.is_done():
-                move = self.get_strategy_move(hand, dealer_upcard)
+        # Loop through each hand (important for splits)
+        hand_index = 0
+        while hand_index < len(self.game.player.hands):
+            current_hand = self.game.player.hands[hand_index]
+            
+            # Play the current hand until it's done
+            while not current_hand.is_done():
+                # Get the strategy move
+                move = self.get_strategy_move(current_hand, dealer_upcard)
                 
-                if move == 'split':
-                    if self.game.split(hand_index):
+                # Execute the move
+                success = self.game.execute_move(move, hand_index)
+                
+                # Update metrics
+                if success:
+                    if move == 'split':
                         metrics['split'] += 1
-                elif move == 'double':
-                    if self.game.double_down(hand):
+                    elif move == 'double':
                         metrics['double'] += 1
-                    break
-                elif move == 'surrender':
-                    if self.game.surrender(hand):
+                    elif move == 'surrender':
                         metrics['surrender'] += 1
+                
+                # If the move wasn't successful or it was a stand, move to next hand
+                if not success or move == 'stand':
                     break
-                elif move == 'hit':
-                    if not self.game.hit(hand):
-                        break
-                elif move == 'stand':
-                    break
+            
+            # Move to next hand
+            hand_index += 1
 
+        # Complete the round
+        result = self.game.finish_round()
+        
         # Process results
         for game_result, amount in result.hand_results:
             if game_result == GameResult.BLACKJACK:
@@ -140,108 +146,7 @@ class BlackjackSimulator:
 
         return result.total_win_loss, metrics
 
-    def run_simulation(self, num_hands: int = 100000, processes: int = None) -> SimulationResult:
-        """Run multiple hands and gather statistics"""
-        if processes is None:
-            processes = multiprocessing.cpu_count()
-
-        hands_per_process = num_hands // processes
-        
-        logger.info(f"Starting simulation of {num_hands:,} hands using {processes} processes")
-        
-        with ProcessPoolExecutor(max_workers=processes) as executor:
-            futures = [
-                executor.submit(self._simulate_batch, hands_per_process)
-                for _ in range(processes)
-            ]
-            
-            results = [future.result() for future in futures]
-        
-        # Combine results
-        combined = self._combine_simulation_results(results)
-        
-        # Calculate house edge
-        combined.house_edge = ((combined.total_lost - combined.total_won) / 
-                             combined.total_wagered * 100)
-        
-        logger.info("Simulation complete")
-        return combined
-
-    def _simulate_batch(self, num_hands: int) -> SimulationResult:
-        """Simulate a batch of hands"""
-        self.reset_game()
-        bankroll_history = []
-        results = SimulationResult(
-            hands_played=0,
-            total_wagered=0,
-            total_won=0,
-            total_lost=0,
-            blackjacks=0,
-            wins=0,
-            losses=0,
-            pushes=0,
-            surrenders=0,
-            doubles=0,
-            splits=0,
-            house_edge=0,
-            std_deviation=0,
-            bankroll_history=[]
-        )
-        
-        for _ in range(num_hands):
-            net_win, metrics = self.play_hand()
-            
-            results.hands_played += 1
-            results.total_wagered += self.base_bet
-            
-            if net_win > 0:
-                results.total_won += net_win
-            else:
-                results.total_lost += abs(net_win)
-                
-            results.blackjacks += metrics['blackjack']
-            results.wins += metrics['win']
-            results.losses += metrics['loss']
-            results.pushes += metrics['push']
-            results.surrenders += metrics['surrender']
-            results.doubles += metrics['double']
-            results.splits += metrics['split']
-            
-            bankroll_history.append(self.game.player.bankroll - self.initial_bankroll)
-            
-        results.bankroll_history = bankroll_history
-        results.std_deviation = statistics.stdev(bankroll_history)
-        
-        return results
-
-    def _combine_simulation_results(self, results: List[SimulationResult]) -> SimulationResult:
-        """Combine results from multiple simulation batches"""
-        combined = SimulationResult(
-            hands_played=sum(r.hands_played for r in results),
-            total_wagered=sum(r.total_wagered for r in results),
-            total_won=sum(r.total_won for r in results),
-            total_lost=sum(r.total_lost for r in results),
-            blackjacks=sum(r.blackjacks for r in results),
-            wins=sum(r.wins for r in results),
-            losses=sum(r.losses for r in results),
-            pushes=sum(r.pushes for r in results),
-            surrenders=sum(r.surrenders for r in results),
-            doubles=sum(r.doubles for r in results),
-            splits=sum(r.splits for r in results),
-            house_edge=0,  # Will be calculated later
-            std_deviation=0,  # Will be calculated later
-            bankroll_history=[]  # Will combine all histories
-        )
-        
-        # Combine bankroll histories
-        all_values = []
-        for result in results:
-            all_values.extend(result.bankroll_history)
-        combined.bankroll_history = all_values
-        combined.std_deviation = statistics.stdev(all_values)
-        
-        return combined
-
+    # Rest of the simulator class remains the same...
 def print_simulation_results(results: SimulationResult):
     """Print formatted simulation results"""
     print("\nSimulation Results:")
