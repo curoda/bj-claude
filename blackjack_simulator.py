@@ -75,8 +75,10 @@ class BlackjackSimulator:
             return 'split' if 'split' in valid_moves else 'hit'
         elif action == Action.SURRENDER_OR_HIT:
             return 'surrender' if 'surrender' in valid_moves else 'hit'
-        elif action == Action.SURRENDER_OR_STAND:
-            return 'surrender' if 'surrender' in valid_moves else 'stand'
+        elif action == Action.SURRENDER:
+            return 'surrender' if 'surrender' in valid_moves else 'hit'
+        elif action == Action.DOUBLE:
+            return 'double' if 'double' in valid_moves else 'hit'
         
         return 'hit'  # Default to hit if no valid move found
 
