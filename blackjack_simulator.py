@@ -149,56 +149,59 @@ class BlackjackSimulator:
         return result.total_win_loss, metrics
 
     def _simulate_batch(self, num_hands: int) -> SimulationResult:
-        """Simulate a batch of hands with proper game initialization"""
-        # Create a new game instance for this process
-        game = Blackjack("Simulator", self.initial_bankroll, copy.deepcopy(self.rules))
-        self.game = game  # Update instance game reference
+    """Simulate a batch of hands with proper game initialization"""
+    # Create a new game instance for this process
+    game = Blackjack("Simulator", self.initial_bankroll, copy.deepcopy(self.rules))
+    self.game = game  # Update instance game reference
+    
+    bankroll_history = []
+    results = SimulationResult(
+        hands_played=0,
+        total_wagered=0,
+        total_won=0,
+        total_lost=0,
+        blackjacks=0,
+        wins=0,
+        losses=0,
+        pushes=0,
+        surrenders=0,
+        doubles=0,
+        splits=0,
+        house_edge=0,
+        std_deviation=0,
+        bankroll_history=[]
+    )
+    
+    for _ in range(num_hands):
+        # Reset game state and deck if needed
+        if self.game.round_state == RoundState.COMPLETE:
+            self.reset_game()
+            
+        net_win, metrics = self.play_hand()
         
-        bankroll_history = []
-        results = SimulationResult(
-            hands_played=0,
-            total_wagered=0,
-            total_won=0,
-            total_lost=0,
-            blackjacks=0,
-            wins=0,
-            losses=0,
-            pushes=0,
-            surrenders=0,
-            doubles=0,
-            splits=0,
-            house_edge=0,
-            std_deviation=0,
-            bankroll_history=[]
-        )
+        results.hands_played += 1
+        results.total_wagered += self.base_bet
         
-        for _ in range(num_hands):
-            # Ensure game state is reset before each hand
-            self.game.round_state = RoundState.NOT_STARTED
-            net_win, metrics = self.play_hand()
+        if net_win > 0:
+            results.total_won += net_win
+        else:
+            results.total_lost += abs(net_win)
             
-            results.hands_played += 1
-            results.total_wagered += self.base_bet
-            
-            if net_win > 0:
-                results.total_won += net_win
-            else:
-                results.total_lost += abs(net_win)
-                
-            results.blackjacks += metrics['blackjack']
-            results.wins += metrics['win']
-            results.losses += metrics['loss']
-            results.pushes += metrics['push']
-            results.surrenders += metrics['surrender']
-            results.doubles += metrics['double']
-            results.splits += metrics['split']
-            
-            bankroll_history.append(self.game.player.bankroll - self.initial_bankroll)
-            
-        results.bankroll_history = bankroll_history
+        results.blackjacks += metrics['blackjack']
+        results.wins += metrics['win']
+        results.losses += metrics['loss']
+        results.pushes += metrics['push']
+        results.surrenders += metrics['surrender']
+        results.doubles += metrics['double']
+        results.splits += metrics['split']
+        
+        bankroll_history.append(self.game.player.bankroll - self.initial_bankroll)
+        
+    results.bankroll_history = bankroll_history
+    if bankroll_history:  # Only calculate std_deviation if we have data
         results.std_deviation = statistics.stdev(bankroll_history)
-        
-        return results
+    
+    return results
 
     def run_simulation(self, num_hands: int = 100000, processes: int = None) -> SimulationResult:
         """Run multiple hands and gather statistics"""
