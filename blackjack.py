@@ -176,14 +176,12 @@ class Hand:
         if aces > 0 and value + 10 <= 21:
             value += 10
             
-        return value, self.is_blackjack()
+        return value, (value == 21 and len(self.cards) == 2 and not self.is_split and not self.took_even_money)
     
     def is_blackjack(self) -> bool:
         # Only original non-split hands can have blackjack
-        return (len(self.cards) == 2 and 
-                self.get_value()[0] == 21 and 
-                not self.is_split and
-                not self.took_even_money)
+        value, has_blackjack = self.get_value()
+        return has_blackjack
     
     def is_busted(self) -> bool:
         return self.get_value()[0] > 21
