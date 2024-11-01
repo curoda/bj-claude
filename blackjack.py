@@ -357,9 +357,12 @@ def validate_game_state(f):
             raise GameError("No cards available")
         if self.player.bankroll <= 0:
             raise GameError("Player has no funds")
-        if self.round_state == RoundState.NOT_STARTED and f.__name__ not in ['play_round']:
+        if f.__name__ == 'start_round':
+            # Allow start_round to be called regardless of current state
+            return f(self, *args, **kwargs)
+        if self.round_state == RoundState.NOT_STARTED and f.__name__ not in ['play_round', 'start_round']:
             raise GameError("Round hasn't started")
-        if self.round_state == RoundState.COMPLETE and f.__name__ not in ['play_round']:
+        if self.round_state == RoundState.COMPLETE and f.__name__ not in ['play_round', 'start_round']:
             raise GameError("Round is complete")
         return f(self, *args, **kwargs)
     return wrapper
