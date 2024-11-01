@@ -1,4 +1,4 @@
-from blackjack import Blackjack, BlackjackRules, Card, Hand, GameResult
+from blackjack import Blackjack, BlackjackRules, Card, Hand, GameResult, RoundState
 from basic_strategy import BasicStrategy, Action
 from typing import List, Tuple, Dict
 from dataclasses import dataclass
@@ -174,7 +174,7 @@ class BlackjackSimulator:
         
         for _ in range(num_hands):
             # Ensure game state is reset before each hand
-            self.game.round_state = self.game.RoundState.NOT_STARTED
+            self.game.round_state = RoundState.NOT_STARTED
             net_win, metrics = self.play_hand()
             
             results.hands_played += 1
