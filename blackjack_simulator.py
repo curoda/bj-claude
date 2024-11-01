@@ -247,7 +247,7 @@ class BlackjackSimulator:
         combined.std_deviation = statistics.stdev(all_values)
         
         return combined
-        
+
 def print_simulation_results(results: SimulationResult):
     """Print formatted simulation results"""
     print("\nSimulation Results:")
