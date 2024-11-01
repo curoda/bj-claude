@@ -146,7 +146,108 @@ class BlackjackSimulator:
 
         return result.total_win_loss, metrics
 
-    # Rest of the simulator class remains the same...
+    def run_simulation(self, num_hands: int = 100000, processes: int = None) -> SimulationResult:
+        """Run multiple hands and gather statistics"""
+        if processes is None:
+            processes = multiprocessing.cpu_count()
+
+        hands_per_process = num_hands // processes
+        
+        logger.info(f"Starting simulation of {num_hands:,} hands using {processes} processes")
+        
+        with ProcessPoolExecutor(max_workers=processes) as executor:
+            futures = [
+                executor.submit(self._simulate_batch, hands_per_process)
+                for _ in range(processes)
+            ]
+            
+            results = [future.result() for future in futures]
+        
+        # Combine results
+        combined = self._combine_simulation_results(results)
+        
+        # Calculate house edge
+        combined.house_edge = ((combined.total_lost - combined.total_won) / 
+                             combined.total_wagered * 100)
+        
+        logger.info("Simulation complete")
+        return combined
+
+    def _simulate_batch(self, num_hands: int) -> SimulationResult:
+        """Simulate a batch of hands"""
+        self.reset_game()
+        bankroll_history = []
+        results = SimulationResult(
+            hands_played=0,
+            total_wagered=0,
+            total_won=0,
+            total_lost=0,
+            blackjacks=0,
+            wins=0,
+            losses=0,
+            pushes=0,
+            surrenders=0,
+            doubles=0,
+            splits=0,
+            house_edge=0,
+            std_deviation=0,
+            bankroll_history=[]
+        )
+        
+        for _ in range(num_hands):
+            net_win, metrics = self.play_hand()
+            
+            results.hands_played += 1
+            results.total_wagered += self.base_bet
+            
+            if net_win > 0:
+                results.total_won += net_win
+            else:
+                results.total_lost += abs(net_win)
+                
+            results.blackjacks += metrics['blackjack']
+            results.wins += metrics['win']
+            results.losses += metrics['loss']
+            results.pushes += metrics['push']
+            results.surrenders += metrics['surrender']
+            results.doubles += metrics['double']
+            results.splits += metrics['split']
+            
+            bankroll_history.append(self.game.player.bankroll - self.initial_bankroll)
+            
+        results.bankroll_history = bankroll_history
+        results.std_deviation = statistics.stdev(bankroll_history)
+        
+        return results
+
+    def _combine_simulation_results(self, results: List[SimulationResult]) -> SimulationResult:
+        """Combine results from multiple simulation batches"""
+        combined = SimulationResult(
+            hands_played=sum(r.hands_played for r in results),
+            total_wagered=sum(r.total_wagered for r in results),
+            total_won=sum(r.total_won for r in results),
+            total_lost=sum(r.total_lost for r in results),
+            blackjacks=sum(r.blackjacks for r in results),
+            wins=sum(r.wins for r in results),
+            losses=sum(r.losses for r in results),
+            pushes=sum(r.pushes for r in results),
+            surrenders=sum(r.surrenders for r in results),
+            doubles=sum(r.doubles for r in results),
+            splits=sum(r.splits for r in results),
+            house_edge=0,  # Will be calculated later
+            std_deviation=0,  # Will be calculated later
+            bankroll_history=[]  # Will combine all histories
+        )
+        
+        # Combine bankroll histories
+        all_values = []
+        for result in results:
+            all_values.extend(result.bankroll_history)
+        combined.bankroll_history = all_values
+        combined.std_deviation = statistics.stdev(all_values)
+        
+        return combined
+        
 def print_simulation_results(results: SimulationResult):
     """Print formatted simulation results"""
     print("\nSimulation Results:")
