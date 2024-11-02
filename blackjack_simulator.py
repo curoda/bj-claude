@@ -177,13 +177,18 @@ class BlackjackSimulator:
             bankroll_history=[]
         )
         
+        # Track starting bankroll for the entire batch
+        starting_bankroll = self.initial_bankroll
+        
         for _ in range(num_hands):
             # Reset game state and deck if needed
             if self.game.round_state == RoundState.COMPLETE:
+                current_bankroll = self.game.player.bankroll  # Save current bankroll
                 self.reset_game()
+                self.game.player.bankroll = current_bankroll  # Restore bankroll after reset
                 
-            # Track initial bankroll for this hand
-            initial_bankroll = self.game.player.bankroll
+            # Track bankroll before the hand
+            pre_hand_bankroll = self.game.player.bankroll
             
             # Play the hand
             net_win, metrics = self.play_hand()
@@ -197,15 +202,15 @@ class BlackjackSimulator:
                 base_wager *= 2
             results.total_wagered += base_wager
             
-            # Calculate actual bankroll change
-            final_bankroll = self.game.player.bankroll
-            bankroll_change = final_bankroll - initial_bankroll
+            # Calculate actual bankroll change for this hand
+            post_hand_bankroll = self.game.player.bankroll
+            hand_bankroll_change = post_hand_bankroll - pre_hand_bankroll
             
-            # Update money statistics
-            if bankroll_change > 0:
-                results.total_won += bankroll_change
-            elif bankroll_change < 0:
-                results.total_lost += abs(bankroll_change)
+            # Update money statistics based on this hand's results
+            if hand_bankroll_change > 0:
+                results.total_won += hand_bankroll_change
+            elif hand_bankroll_change < 0:
+                results.total_lost += abs(hand_bankroll_change)
                 
             # Update other statistics
             results.blackjacks += metrics['blackjack']
@@ -216,10 +221,10 @@ class BlackjackSimulator:
             results.doubles += metrics['double']
             results.splits += metrics['split']
             
-            # Track actual bankroll change
-            bankroll_history.append(bankroll_change)
+            # Track bankroll change from initial bankroll
+            bankroll_history.append(hand_bankroll_change)
         
-        # Set final bankroll history and calculate standard deviation
+        # Calculate final statistics
         results.bankroll_history = bankroll_history
         if bankroll_history:
             results.std_deviation = statistics.stdev(bankroll_history)
