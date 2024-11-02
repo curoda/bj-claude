@@ -182,16 +182,32 @@ class BlackjackSimulator:
             if self.game.round_state == RoundState.COMPLETE:
                 self.reset_game()
                 
+            # Track initial bankroll for this hand
+            initial_bankroll = self.game.player.bankroll
+            
+            # Play the hand
             net_win, metrics = self.play_hand()
             
+            # Update basic statistics
             results.hands_played += 1
-            results.total_wagered += self.base_bet
             
-            if net_win > 0:
-                results.total_won += net_win
-            else:
-                results.total_lost += abs(net_win)
+            # Calculate actual amount wagered for this hand
+            base_wager = self.base_bet
+            if metrics['double']:
+                base_wager *= 2
+            results.total_wagered += base_wager
+            
+            # Calculate actual bankroll change
+            final_bankroll = self.game.player.bankroll
+            bankroll_change = final_bankroll - initial_bankroll
+            
+            # Update money statistics
+            if bankroll_change > 0:
+                results.total_won += bankroll_change
+            elif bankroll_change < 0:
+                results.total_lost += abs(bankroll_change)
                 
+            # Update other statistics
             results.blackjacks += metrics['blackjack']
             results.wins += metrics['win']
             results.losses += metrics['loss']
@@ -200,10 +216,12 @@ class BlackjackSimulator:
             results.doubles += metrics['double']
             results.splits += metrics['split']
             
-            bankroll_history.append(self.game.player.bankroll - self.initial_bankroll)
-            
+            # Track actual bankroll change
+            bankroll_history.append(bankroll_change)
+        
+        # Set final bankroll history and calculate standard deviation
         results.bankroll_history = bankroll_history
-        if bankroll_history:  # Only calculate std_deviation if we have data
+        if bankroll_history:
             results.std_deviation = statistics.stdev(bankroll_history)
         
         return results
