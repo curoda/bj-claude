@@ -1,6 +1,8 @@
 from blackjack import Blackjack, BlackjackRules  # Our previous blackjack implementation
 from basic_strategy import BasicStrategy, Action  # Our previous basic strategy implementation
 from blackjack_simulator import BlackjackSimulator, print_simulation_results
+import logging
+logging.basicConfig(level=logging.DEBUG)
 
 def run_blackjack_simulation(hands: int = 100000, bankroll: float = 100000.0):
     """
