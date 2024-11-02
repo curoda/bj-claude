@@ -156,8 +156,7 @@ class BlackjackSimulator:
     def _simulate_batch(self, num_hands: int) -> SimulationResult:
         """Simulate a batch of hands with proper game initialization"""
         # Create a new game instance for this process
-        game = Blackjack("Simulator", self.initial_bankroll, copy.deepcopy(self.rules))
-        self.game = game  # Update instance game reference
+        self.game = Blackjack("Simulator", self.initial_bankroll, copy.deepcopy(self.rules))
         
         bankroll_history = []
         results = SimulationResult(
@@ -177,15 +176,16 @@ class BlackjackSimulator:
             bankroll_history=[]
         )
         
-        # Track starting bankroll for the entire batch
-        starting_bankroll = self.initial_bankroll
-        
         for _ in range(num_hands):
-            # Reset game state and deck if needed
+            # Reset game if needed, maintaining bankroll
             if self.game.round_state == RoundState.COMPLETE:
-                current_bankroll = self.game.player.bankroll  # Save current bankroll
-                self.reset_game()
-                self.game.player.bankroll = current_bankroll  # Restore bankroll after reset
+                current_bankroll = self.game.player.bankroll
+                self.game = Blackjack("Simulator", current_bankroll, copy.deepcopy(self.rules))
+            
+            # Ensure we have enough funds for base bet
+            if self.game.player.bankroll < self.base_bet:
+                # Reset bankroll to initial amount if we run out
+                self.game = Blackjack("Simulator", self.initial_bankroll, copy.deepcopy(self.rules))
                 
             # Track bankroll before the hand
             pre_hand_bankroll = self.game.player.bankroll
@@ -197,20 +197,20 @@ class BlackjackSimulator:
             results.hands_played += 1
             
             # Calculate actual amount wagered for this hand
-            base_wager = self.base_bet
+            current_wager = self.base_bet
             if metrics['double']:
-                base_wager *= 2
-            results.total_wagered += base_wager
+                current_wager *= 2
+            results.total_wagered += current_wager
             
             # Calculate actual bankroll change for this hand
             post_hand_bankroll = self.game.player.bankroll
-            hand_bankroll_change = post_hand_bankroll - pre_hand_bankroll
+            hand_result = post_hand_bankroll - pre_hand_bankroll
             
-            # Update money statistics based on this hand's results
-            if hand_bankroll_change > 0:
-                results.total_won += hand_bankroll_change
-            elif hand_bankroll_change < 0:
-                results.total_lost += abs(hand_bankroll_change)
+            # Update money statistics
+            if hand_result > 0:
+                results.total_won += hand_result
+            else:
+                results.total_lost += abs(hand_result)
                 
             # Update other statistics
             results.blackjacks += metrics['blackjack']
@@ -221,10 +221,10 @@ class BlackjackSimulator:
             results.doubles += metrics['double']
             results.splits += metrics['split']
             
-            # Track bankroll change from initial bankroll
-            bankroll_history.append(hand_bankroll_change)
+            # Store actual per-hand result
+            bankroll_history.append(hand_result)
         
-        # Calculate final statistics
+        # Set final bankroll history and calculate standard deviation
         results.bankroll_history = bankroll_history
         if bankroll_history:
             results.std_deviation = statistics.stdev(bankroll_history)
