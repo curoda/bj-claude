@@ -232,10 +232,21 @@ class BlackjackSimulator:
         return results
 
     def run_simulation(self, num_hands: int = 100000, processes: int = None) -> SimulationResult:
-        """Run multiple hands and gather statistics"""
+        """Run multiple hands and gather statistics
+        
+        Args:
+            num_hands: Number of hands to simulate
+            processes: If None or 1, runs in single process. Otherwise uses multiple processes.
+        """
+        # NEW: Check for single process mode
+        if not processes or processes == 1:
+            logger.info(f"Starting simulation of {num_hands:,} hands in single process")
+            return self._simulate_batch(num_hands)
+        
+        # UNCHANGED: Original multiprocess code starts here
         if processes is None:
             processes = multiprocessing.cpu_count()
-
+    
         hands_per_process = num_hands // processes
         
         logger.info(f"Starting simulation of {num_hands:,} hands using {processes} processes")
@@ -245,7 +256,7 @@ class BlackjackSimulator:
                 executor.submit(self._simulate_batch, hands_per_process)
                 for _ in range(processes)
             ]
-            
+                
             results = [future.result() for future in futures]
         
         # Combine results
@@ -253,7 +264,7 @@ class BlackjackSimulator:
         
         # Calculate house edge
         combined.house_edge = ((combined.total_lost - combined.total_won) / 
-                             combined.total_wagered * 100)
+                                 combined.total_wagered * 100)
         
         logger.info("Simulation complete")
         return combined
