@@ -83,7 +83,7 @@ class BlackjackSimulator:
         return 'hit'  # Default to hit if no valid move found
 
     def play_hand(self) -> Tuple[float, Dict]:
-        """Play a single hand using basic strategy with debug logging for splits and doubles"""
+        """Play a single hand using basic strategy with corrected result tracking"""
         metrics = {
             'blackjack': 0,
             'win': 0,
@@ -91,7 +91,9 @@ class BlackjackSimulator:
             'push': 0,
             'surrender': 0,
             'double': 0,
-            'split': 0
+            'split': 0,
+            'total_won': 0.0,
+            'total_lost': 0.0
         }
     
         starting_bankroll = self.game.player.bankroll
@@ -100,9 +102,14 @@ class BlackjackSimulator:
         if not self.game.start_round(self.base_bet):
             return 0, metrics
         
+        logger.debug(f"Initial bet placed. Bankroll now: ${self.game.player.bankroll:.2f}")
+        
         dealer_upcard = self.game.get_dealer_upcard()
         hand_index = 0
         surrendered_hands = set()
+        
+        # Track total amount wagered for this round
+        total_wagered = self.base_bet
         
         while hand_index < len(self.game.player.hands):
             current_hand = self.game.player.hands[hand_index]
@@ -111,37 +118,30 @@ class BlackjackSimulator:
                 pre_move_bankroll = self.game.player.bankroll
                 move = self.get_strategy_move(current_hand, dealer_upcard)
                 
-                # Execute the move
-                success = self.game.execute_move(move, hand_index)
-                post_move_bankroll = self.game.player.bankroll
+                logger.debug(f"Making move: {move}")
+                logger.debug(f"Current hand: {current_hand}")
+                logger.debug(f"Dealer upcard: {dealer_upcard}")
+                logger.debug(f"Bankroll before move: ${pre_move_bankroll:.2f}")
                 
-                # Detailed logging for special plays
+                success = self.game.execute_move(move, hand_index)
+                
+                post_move_bankroll = self.game.player.bankroll
+                logger.debug(f"Move result: {'success' if success else 'failed'}")
+                logger.debug(f"Bankroll after move: ${post_move_bankroll:.2f}")
+                
                 if success:
                     if move == 'split':
-                        logger.debug(f"Split executed:")
-                        logger.debug(f"  Pre-split bankroll: ${pre_move_bankroll:.2f}")
-                        logger.debug(f"  Post-split bankroll: ${post_move_bankroll:.2f}")
-                        logger.debug(f"  Bankroll change: ${post_move_bankroll - pre_move_bankroll:.2f}")
-                        logger.debug(f"  Number of hands now: {len(self.game.player.hands)}")
-                        for i, h in enumerate(self.game.player.hands):
-                            logger.debug(f"  Hand {i}: {h} (Bet: ${h.bet:.2f})")
+                        total_wagered += self.base_bet
+                        logger.debug(f"Split executed. Additional bet: ${self.base_bet:.2f}")
                         metrics['split'] += 1
-                    
                     elif move == 'double':
-                        logger.debug(f"Double down executed:")
-                        logger.debug(f"  Pre-double bankroll: ${pre_move_bankroll:.2f}")
-                        logger.debug(f"  Post-double bankroll: ${post_move_bankroll:.2f}")
-                        logger.debug(f"  Bankroll change: ${post_move_bankroll - pre_move_bankroll:.2f}")
-                        logger.debug(f"  New bet amount: ${current_hand.bet:.2f}")
+                        total_wagered += self.base_bet
+                        logger.debug(f"Double executed. Additional bet: ${self.base_bet:.2f}")
                         metrics['double'] += 1
-                    
                     elif move == 'surrender':
-                        logger.debug(f"Surrender executed:")
-                        logger.debug(f"  Pre-surrender bankroll: ${pre_move_bankroll:.2f}")
-                        logger.debug(f"  Post-surrender bankroll: ${post_move_bankroll:.2f}")
-                        logger.debug(f"  Bankroll change: ${post_move_bankroll - pre_move_bankroll:.2f}")
                         metrics['surrender'] += 1
                         surrendered_hands.add(hand_index)
+                        logger.debug("Surrender executed")
                         break
                 
                 if not success or move == 'stand':
@@ -149,31 +149,40 @@ class BlackjackSimulator:
             
             hand_index += 1
         
-        # Complete the round
+        # Complete the round and get results
         result = self.game.finish_round()
         ending_bankroll = self.game.player.bankroll
         
-        # Log final results for all hands
-        logger.debug(f"\nHand complete:")
+        # Log hand completion details
+        logger.debug("\nHand complete:")
         logger.debug(f"Starting bankroll: ${starting_bankroll:.2f}")
         logger.debug(f"Ending bankroll: ${ending_bankroll:.2f}")
         logger.debug(f"Net change: ${ending_bankroll - starting_bankroll:.2f}")
-        logger.debug("Results by hand:")
-        for i, (game_result, amount) in enumerate(result.hand_results):
-            logger.debug(f"  Hand {i}: {game_result.value} - Payout: ${amount:.2f}")
         
-        # Process results
+        # Process results for each hand
         for i, (game_result, amount) in enumerate(result.hand_results):
+            logger.debug(f"Hand {i} result: {game_result.value}, Payout: ${amount:.2f}")
+            
             if i not in surrendered_hands:
                 if game_result == GameResult.BLACKJACK:
                     metrics['blackjack'] += 1
                     metrics['win'] += 1
+                    won_amount = amount - current_hand.original_bet  # Subtract original bet to get net win
+                    metrics['total_won'] += won_amount
+                    logger.debug(f"Blackjack win. Won amount: ${won_amount:.2f}")
                 elif game_result == GameResult.WIN:
                     metrics['win'] += 1
+                    won_amount = amount - current_hand.original_bet
+                    metrics['total_won'] += won_amount
+                    logger.debug(f"Regular win. Won amount: ${won_amount:.2f}")
                 elif game_result == GameResult.LOSE:
                     metrics['loss'] += 1
+                    lost_amount = current_hand.bet  # Full bet is lost
+                    metrics['total_lost'] += lost_amount
+                    logger.debug(f"Loss. Lost amount: ${lost_amount:.2f}")
                 elif game_result == GameResult.PUSH:
                     metrics['push'] += 1
+                    logger.debug("Push - bet returned")
         
         return result.total_win_loss, metrics
     
