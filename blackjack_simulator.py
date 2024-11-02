@@ -83,7 +83,7 @@ class BlackjackSimulator:
         return 'hit'  # Default to hit if no valid move found
 
     def play_hand(self) -> Tuple[float, Dict]:
-        """Play a single hand using basic strategy"""
+        """Play a single hand using basic strategy with debug logging for splits and doubles"""
         metrics = {
             'blackjack': 0,
             'win': 0,
@@ -94,53 +94,77 @@ class BlackjackSimulator:
             'split': 0
         }
     
-        # Start the round
+        starting_bankroll = self.game.player.bankroll
+        logger.debug(f"\nStarting hand with bankroll: ${starting_bankroll:.2f}")
+        
         if not self.game.start_round(self.base_bet):
             return 0, metrics
-    
-        # Get initial state
-        dealer_upcard = self.game.get_dealer_upcard()
         
-        # Basic strategy never takes insurance or even money
-        # Loop through each hand (important for splits)
+        dealer_upcard = self.game.get_dealer_upcard()
         hand_index = 0
-        surrendered_hands = set()  # Track which hands were surrendered
+        surrendered_hands = set()
         
         while hand_index < len(self.game.player.hands):
             current_hand = self.game.player.hands[hand_index]
             
-            # Play the current hand until it's done
             while not current_hand.is_done():
-                # Get the strategy move
+                pre_move_bankroll = self.game.player.bankroll
                 move = self.get_strategy_move(current_hand, dealer_upcard)
                 
                 # Execute the move
                 success = self.game.execute_move(move, hand_index)
+                post_move_bankroll = self.game.player.bankroll
                 
-                # Update metrics
+                # Detailed logging for special plays
                 if success:
                     if move == 'split':
+                        logger.debug(f"Split executed:")
+                        logger.debug(f"  Pre-split bankroll: ${pre_move_bankroll:.2f}")
+                        logger.debug(f"  Post-split bankroll: ${post_move_bankroll:.2f}")
+                        logger.debug(f"  Bankroll change: ${post_move_bankroll - pre_move_bankroll:.2f}")
+                        logger.debug(f"  Number of hands now: {len(self.game.player.hands)}")
+                        for i, h in enumerate(self.game.player.hands):
+                            logger.debug(f"  Hand {i}: {h} (Bet: ${h.bet:.2f})")
                         metrics['split'] += 1
+                    
                     elif move == 'double':
+                        logger.debug(f"Double down executed:")
+                        logger.debug(f"  Pre-double bankroll: ${pre_move_bankroll:.2f}")
+                        logger.debug(f"  Post-double bankroll: ${post_move_bankroll:.2f}")
+                        logger.debug(f"  Bankroll change: ${post_move_bankroll - pre_move_bankroll:.2f}")
+                        logger.debug(f"  New bet amount: ${current_hand.bet:.2f}")
                         metrics['double'] += 1
+                    
                     elif move == 'surrender':
+                        logger.debug(f"Surrender executed:")
+                        logger.debug(f"  Pre-surrender bankroll: ${pre_move_bankroll:.2f}")
+                        logger.debug(f"  Post-surrender bankroll: ${post_move_bankroll:.2f}")
+                        logger.debug(f"  Bankroll change: ${post_move_bankroll - pre_move_bankroll:.2f}")
                         metrics['surrender'] += 1
-                        surrendered_hands.add(hand_index)  # Track this surrender
+                        surrendered_hands.add(hand_index)
                         break
                 
-                # If the move wasn't successful or it was a stand, move to next hand
                 if not success or move == 'stand':
                     break
             
-            # Move to next hand
             hand_index += 1
-    
+        
         # Complete the round
         result = self.game.finish_round()
+        ending_bankroll = self.game.player.bankroll
         
-        # Process results - only count non-surrender results here
+        # Log final results for all hands
+        logger.debug(f"\nHand complete:")
+        logger.debug(f"Starting bankroll: ${starting_bankroll:.2f}")
+        logger.debug(f"Ending bankroll: ${ending_bankroll:.2f}")
+        logger.debug(f"Net change: ${ending_bankroll - starting_bankroll:.2f}")
+        logger.debug("Results by hand:")
         for i, (game_result, amount) in enumerate(result.hand_results):
-            if i not in surrendered_hands:  # Skip already-counted surrenders
+            logger.debug(f"  Hand {i}: {game_result.value} - Payout: ${amount:.2f}")
+        
+        # Process results
+        for i, (game_result, amount) in enumerate(result.hand_results):
+            if i not in surrendered_hands:
                 if game_result == GameResult.BLACKJACK:
                     metrics['blackjack'] += 1
                     metrics['win'] += 1
@@ -150,9 +174,9 @@ class BlackjackSimulator:
                     metrics['loss'] += 1
                 elif game_result == GameResult.PUSH:
                     metrics['push'] += 1
-    
+        
         return result.total_win_loss, metrics
-
+    
     def _simulate_batch(self, num_hands: int) -> SimulationResult:
         """Simulate a batch of hands with proper game initialization"""
         # Create a new game instance for this process
