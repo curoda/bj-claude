@@ -36,12 +36,12 @@ def run_blackjack_simulation(hands: int = 100000, bankroll: float = 100000.0):
     print("Using basic strategy with standard casino rules")
     print("\nSimulating...")
     
-    # Run simulation
-    results = simulator.run_simulation(num_hands=hands)
+    # Run simulation with single process
+    results = simulator.run_simulation(num_hands=hands, processes=1)
     
     # Print results
     print_simulation_results(results)
 
 if __name__ == "__main__":
-    # Run a simulation of 100,000 hands with $100,000 bankroll
+    # Run a simulation with single process
     run_blackjack_simulation(hands=100000, bankroll=100000.0)
