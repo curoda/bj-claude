@@ -93,17 +93,19 @@ class BlackjackSimulator:
             'double': 0,
             'split': 0
         }
-
+    
         # Start the round
         if not self.game.start_round(self.base_bet):
             return 0, metrics
-
+    
         # Get initial state
         dealer_upcard = self.game.get_dealer_upcard()
         
         # Basic strategy never takes insurance or even money
         # Loop through each hand (important for splits)
         hand_index = 0
+        surrendered_hands = set()  # Track which hands were surrendered
+        
         while hand_index < len(self.game.player.hands):
             current_hand = self.game.player.hands[hand_index]
             
@@ -123,6 +125,8 @@ class BlackjackSimulator:
                         metrics['double'] += 1
                     elif move == 'surrender':
                         metrics['surrender'] += 1
+                        surrendered_hands.add(hand_index)  # Track this surrender
+                        break
                 
                 # If the move wasn't successful or it was a stand, move to next hand
                 if not success or move == 'stand':
@@ -130,24 +134,23 @@ class BlackjackSimulator:
             
             # Move to next hand
             hand_index += 1
-
+    
         # Complete the round
         result = self.game.finish_round()
         
-        # Process results
-        for game_result, amount in result.hand_results:
-            if game_result == GameResult.BLACKJACK:
-                metrics['blackjack'] += 1
-                metrics['win'] += 1
-            elif game_result == GameResult.WIN:
-                metrics['win'] += 1
-            elif game_result == GameResult.LOSE:
-                metrics['loss'] += 1
-            elif game_result == GameResult.PUSH:
-                metrics['push'] += 1
-            elif game_result == GameResult.SURRENDER:
-                metrics['surrender'] += 1
-
+        # Process results - only count non-surrender results here
+        for i, (game_result, amount) in enumerate(result.hand_results):
+            if i not in surrendered_hands:  # Skip already-counted surrenders
+                if game_result == GameResult.BLACKJACK:
+                    metrics['blackjack'] += 1
+                    metrics['win'] += 1
+                elif game_result == GameResult.WIN:
+                    metrics['win'] += 1
+                elif game_result == GameResult.LOSE:
+                    metrics['loss'] += 1
+                elif game_result == GameResult.PUSH:
+                    metrics['push'] += 1
+    
         return result.total_win_loss, metrics
 
     def _simulate_batch(self, num_hands: int) -> SimulationResult:
